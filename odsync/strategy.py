@@ -3,9 +3,14 @@
 odsync/strategy.py
 
 written by: Oliver Cordes 2020-10-16
-changed by: Oliver Cordes 2020-10-16
+changed by: Oliver Cordes 2020-10-18
 
 """
+
+# strategy types
+strategy_simple = 0
+strategy_md5sum = 1
+strategy_opt1   = 2
 
 
 def bestblocksize(file1, file2):
@@ -34,7 +39,9 @@ def copyfile(file1, file2):
 
     abort = False
     while (file_pos < max_size) and (abort == False):
-        abort = True
+        file_pos += file1.copy_to(file2, strategy=strategy_simple)
+        print(file_pos, end=' ')
+        #abort = True
 
     file1.close()
     file2.close()

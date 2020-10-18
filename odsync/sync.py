@@ -2,12 +2,14 @@
 odsync/sync.py
 
 written by: Oliver Cordes 2020-10-15
-changed by: Oliver Cordes 2020-10-15
+changed by: Oliver Cordes 2020-10-18
 
 """
 
 import io
 import os
+
+import strategy
 
 
 class SyncFile(object):
@@ -53,6 +55,12 @@ class SyncFile(object):
             self._blocksize = blocksize
 
         return self._blocksize
+
+
+    def copy_to(self, tofile, strategy=strategy.strategy_simple):
+        bytes = self._blocksize
+
+        return bytes
 
 
 
