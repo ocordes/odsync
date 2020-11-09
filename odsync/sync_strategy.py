@@ -3,7 +3,7 @@
 odsync/sync_strategy.py
 
 written by: Oliver Cordes 2020-10-16
-changed by: Oliver Cordes 2020-10-25
+changed by: Oliver Cordes 2020-11-08
 
 """
 
@@ -45,7 +45,7 @@ def copyfile(file1, file2, copy_strategy=strategy_simple):
 
     if copy_strategy == strategy_simple:
         logger.debug('copying strategy: simple')
-    elif copy_strategy == strategy__md5sum:
+    elif copy_strategy == strategy_md5sum:
         logger.debug('copying strategy: md5sum')
     elif copy_strategy == strategy_op1:
         logger.debug('copying strategy: op1')
