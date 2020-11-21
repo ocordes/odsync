@@ -4,7 +4,7 @@
 odsync/odsync.py
 
 written by: Oliver Cordes 2020-10-15
-changed by: Oliver COrdes 2020-11-15
+changed by: Oliver COrdes 2020-11-21
 """
 
 
@@ -20,8 +20,8 @@ from sync_logger import init_logger
 from command import Daemon, Client
 
 
-short_options = 'hbv'
-long_options = ['help', 'daemon', 'verbose']
+short_options = 'hbtv'
+long_options = ['help', 'daemon', 'speed-test', 'verbose']
 
 
 def usage():
@@ -29,6 +29,8 @@ def usage():
     print(' -v|--verbose : verbose output')
 
 def main():
+    command = 'copy'
+
     try:
         opts, args = getopt.getopt(sys.argv[1:], short_options, long_options)
     except getopt.GetoptError as err:
@@ -48,6 +50,8 @@ def main():
             daemon = Daemon(verbose=verbose)
             daemon.handle_events()
             sys.exit()
+        elif o in ('-t', '--speed-test'):
+            command = 'test'
         else:
             assert False, "unhandled option"
 
@@ -59,11 +63,25 @@ def main():
     app_logger.debug('App started')
 
     # do something
-    print('Hallo')
     print(args)
 
+    # initialize the client
     client = Client(verbose=verbose)
-    client.check_protocol()
+
+    # check if protocol is compatible
+    compatible = client.check_protocol()
+
+    if compatible:
+        print('Transfer protocol is compatible!')
+
+    # do something useful
+    if command == 'copy':
+        print('Copy mode')
+    elif command == 'test':
+        print('Testing mode')
+        client.test_speed()
+
+    # Quit the session
     client.send_command(b'Q')
     client.read_output()
 
