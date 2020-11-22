@@ -22,8 +22,11 @@ except:
 
 
 remote_exec = '/Users/ocordes/git/odsync/odsync.sh'
+remote_exec = 'odsync.sh'
+remote_exec = 'ssh localhost /Users/ocordes/git/odsync/odsync.sh'
 
-block_size = 4096
+block_size = 65536
+#block_size = 8192
 
 protocol = '0.0.1'
 
@@ -36,6 +39,31 @@ def setNonBlocking(fd):
     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
     flags = flags | os.O_NONBLOCK
     fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+
+
+def split_command(data):
+    cmd = data[:2]
+    s = data[2:].split(b'\0')
+    blen = int(s[0])
+    bdata = s[1]
+
+    cmd_len = 2+len(s[0])+1+blen
+
+    return cmd, blen, bdata, cmd_len
+
+
+def bytes2human(size):
+    if size < 1000:
+        return f'{size} bytes'
+    size /= 1024
+    if size < 1000:
+        return f'{size:.2f} kbytes'
+    size /= 1024
+    if size < 1000:
+        return f'{size:.2f} Mbytes'
+    size /= 1024
+    return f'{size:.2f} GBytes'
 
 
 
@@ -53,28 +81,68 @@ class Daemon(object):
         pass
 
 
+        # send_data
+    #
+    # sends a data block to the client, the format is:
+    # command (2chars) blocklen (ascii number) \0 [data]
+    def send_data(self, cmd, data=None):
+        sys.stdout.buffer.write(cmd)
+        if data:
+            block_len = len(data)
+        else:
+            block_len = 0
+        block_len = str(block_len).encode('ascii')
+
+        sys.stdout.buffer.write(block_len)
+        sys.stdout.buffer.write(b'\0')
+        if data:
+            sys.stdout.buffer.write(data)
+        sys.stdout.flush()
+
+
     def process_event(self, data):
         if data:
-            if data[0] == 'Q':
-                self._running = False
-                data = []
-            elif data[0] == 'V':
-                sys.stdout.write('ODS-'+protocol)
-                sys.stdout.flush()
-                data = data[1:]
+            cmd, blen, bdata, cmd_len = split_command(data)
+            #print(f' cmd:     {cmd}', file=sys.stderr)
+            #print(f' len:     {blen}', file=sys.stderr)
+            #print(f' cmd_len: {cmd_len}', file=sys.stderr)
 
+            # if cmd structure does not fit into the data,
+            # which means that data is still to be read,
+            # then postpone the handling!
+            if cmd_len > len(data):
+                return data
+
+            # handle events
+            if cmd == b'QQ':
+                # QUIT
+                self._running = False
+            elif cmd == b'VV':
+                # Version request
+                prot = f'ODS-{protocol}'.encode('ascii')
+                self.send_data(b'SS', data=prot)
+            elif cmd == b'BW':
+                self.send_data(b'SS', data=b'OK')
+                #pass
+            data = data[cmd_len:]
+            #print(f' rest:    {len(data)}', file=sys.stderr)
         return data
+
 
     def handle_events(self):
         print('handle_events', file=sys.stderr)
 
+        data = b''
         # need a strategy of reading and handling of streams!!!
         while self._running:
-            data = sys.stdin.read(block_size)
+            newdata = sys.stdin.buffer.read(block_size*2)
+            #newdata = os.read(0, block_size*2)
             #data = sys.stdin.read()
+            if newdata:
+                data += newdata
+
             if data:
-                print(f'>>{data}', file=sys.stderr)
-                #print(data)
+                #print(f'>>{data[:6]}', file=sys.stderr)
                 data = self.process_event(data)
 
         print('QUIT')
@@ -85,6 +153,9 @@ class Client(object):
     def __init__(self, verbose=False):
         self._verbose = verbose
         self._protocol = protocol
+
+        self._send_bytes = 0
+        self._recv_bytes = 0
 
         self._logger = logging.getLogger(self.__class__.__name__)
 
@@ -100,10 +171,25 @@ class Client(object):
 
     # send_command
     #
-    # sends a command to the daemon
-    def send_command(self, cmd):
+    # sends a command to the daemon, the format is:
+    # command (2chars) blocklen (ascii number) \0 [data]
+    def send_command(self, cmd, data=None):
         self._pipe.stdin.write(cmd)
+        if data:
+            block_len = len(data)
+            size = block_len
+        else:
+            block_len = 0
+            size = 0
+        block_len = str(block_len).encode('ascii')
+        self._pipe.stdin.write(block_len)
+        self._pipe.stdin.write(b'\0')
+        if data:
+            self._pipe.stdin.write(data)
         self._pipe.stdin.flush()
+
+        self._send_bytes += 3+len(block_len)+size
+
 
     # read_output
     #
@@ -116,7 +202,8 @@ class Client(object):
             data = self._pipe.stdout.read()
             if data:
                 self._logger.debug(f'{len(data)} bytes recieved')
-                print('R', data)
+                self._recv_bytes += len(data)
+                #print('R', data)
                 have_no_data = False
             else:
                 time.sleep(0.01)
@@ -133,23 +220,33 @@ class Client(object):
     # checks if both version of the protocol is compatible
     # save the minimum version in self._protocol for tests
     def check_protocol(self):
-        self.send_command(b'V')
-        protocol_recv = self.read_output().decode('utf-8')
+        self.send_command(b'VV')
+
+        data = self.read_output()
+        cmd, blen, bdata, cmd_len = split_command(data)
+        print(f' cmd:     {cmd}')
+        print(f' len:     {blen}')
+        print(f' cmd_len: {cmd_len}')
+        print(f' data:    {bdata}')
+
+        protocol_recv = bdata.decode('utf-8')
 
         version = protocol_recv.split('-')[1]
         self._protocol = min(version, protocol)
         return (version >= protocol)
 
 
-    def write_block(self, data):
-        block_len = str(len(data)).encode('ascii')
-        return
+    def speed_write_block(self, length, times):
+        start_time = time.time()
+        for _ in range(times):
+            data = np.random.bytes(length)
+            self.send_command(b'BW', data=data)
 
-        self._pipe.stdin.write(b'B')
-        self._pipe.stdin.write(block_len)
-        self._pipe.stdin.write(b'\0')
-        self._pipe.stdin.write(b'\n')
-        self._pipe.stdin.flush()
+            data = self.read_output()
+            cmd, blen, bdata, cmd_len = split_command(data)
+        end_time = time.time()
+
+        return end_time - start_time
 
 
     def test_speed(self):
@@ -158,6 +255,22 @@ class Client(object):
             return
 
         print('Perform speed tests ...')
-        data = np.random.bytes(512)
-        self.write_block(data)
+
+        length = block_size
+        times = 1000
+
+        run_time = self.speed_write_block(length, times)
+
+        print(f' {length*times/(1024*1024)} MB in {run_time} seconds')
+        print(f' transfer rate: {length*times/(run_time*1024*1024):.2f}MB/s')
+        #data = np.random.bytes(512)
+        #self.send_command(b'BW', data=data)
+        #self.write_block(data)
+
         print('Done.')
+
+
+    def statistic(self):
+        print('Transfer statistics:')
+        print(f' {bytes2human(self._send_bytes)} transferred')
+        print(f' {bytes2human(self._recv_bytes)} recieved')

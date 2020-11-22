@@ -1,3 +1,5 @@
 #!/bin/bash
 
-python odsync/odsync.py $*
+DIR=$(dirname $0)
+
+(cd $DIR; python3 odsync/odsync.py $*)

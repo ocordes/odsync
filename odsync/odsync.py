@@ -4,7 +4,7 @@
 odsync/odsync.py
 
 written by: Oliver Cordes 2020-10-15
-changed by: Oliver COrdes 2020-11-21
+changed by: Oliver Cordes 2020-11-21
 """
 
 
@@ -82,9 +82,10 @@ def main():
         client.test_speed()
 
     # Quit the session
-    client.send_command(b'Q')
+    client.send_command(b'QQ')
     client.read_output()
 
+    client.statistic()
     app_logger.debug('App finished')
 
 
