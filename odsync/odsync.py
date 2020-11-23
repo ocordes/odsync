@@ -4,7 +4,7 @@
 odsync/odsync.py
 
 written by: Oliver Cordes 2020-10-15
-changed by: Oliver Cordes 2020-11-21
+changed by: Oliver Cordes 2020-11-23
 """
 
 
@@ -21,7 +21,7 @@ from command import Daemon, Client
 
 
 short_options = 'hbtv'
-long_options = ['help', 'daemon', 'speed-test', 'verbose']
+long_options = ['help', 'daemon', 'speed-test', 'verbose', 'host=']
 
 
 def usage():
@@ -39,6 +39,8 @@ def main():
         usage()
         sys.exit(2)
     verbose = False
+    host    = None
+
     for o, a in opts:
         if o in ('-v', '--verbose'):
             verbose = True
@@ -50,6 +52,8 @@ def main():
             daemon = Daemon(verbose=verbose)
             daemon.handle_events()
             sys.exit()
+        elif o in ('--host'):
+            host = a
         elif o in ('-t', '--speed-test'):
             command = 'test'
         else:
@@ -63,10 +67,10 @@ def main():
     app_logger.debug('App started')
 
     # do something
-    print(args)
+    print('args:', args)
 
     # initialize the client
-    client = Client(verbose=verbose)
+    client = Client(verbose=verbose, host=host)
 
     # check if protocol is compatible
     compatible = client.check_protocol()

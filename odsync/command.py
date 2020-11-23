@@ -21,9 +21,9 @@ except:
 
 
 
-remote_exec = '/Users/ocordes/git/odsync/odsync.sh'
-#remote_exec = 'odsync.sh'
-remote_exec = 'ssh localhost /Users/ocordes/git/odsync/odsync.sh'
+
+remote_exec = 'odsync -b'
+
 
 block_size = 66536
 #block_size = 8192
@@ -76,6 +76,9 @@ class Daemon(object):
         orig_fl = fcntl.fcntl(sys.stdin, fcntl.F_GETFL)
         fcntl.fcntl(sys.stdin, fcntl.F_SETFL, orig_fl | os.O_NONBLOCK)
 
+        self._poll = select.poll()
+        self._poll.register(sys.stdin, select.POLLIN | select.POLLHUP )
+
 
     def read_datablock(self, data):
         pass
@@ -111,7 +114,7 @@ class Daemon(object):
             # which means that data is still to be read,
             # then postpone the handling!
             if cmd_len > len(data):
-                print(f'>>{len(data)} buffer was not complete', file=sys.stderr)
+                #print(f'>>{len(data)} buffer was not complete', file=sys.stderr)
                 return data
 
             # handle events
@@ -122,7 +125,7 @@ class Daemon(object):
                 # Version request
                 prot = f'ODS-{protocol}'.encode('ascii')
                 #print(f' send: {prot}', file=sys.stderr)
-                time.sleep(1)
+                #time.sleep(1)
                 self.send_data(b'SS', data=prot)
             elif cmd == b'BW':
                 self.send_data(b'SS', data=b'OK')
@@ -137,25 +140,36 @@ class Daemon(object):
 
         data = b''
         # need a strategy of reading and handling of streams!!!
-        while self._running:
-            newdata = sys.stdin.buffer.read(block_size*2)
-            #newdata = os.read(0, block_size*2)
-            #data = sys.stdin.read()
-            if newdata:
-                #if len(data) > 0:
-                #    print(f'>>{len(data)} buffer was not empty', file=sys.stderr)
-                data += newdata
 
-            if data:
-                #print(f'>>{data[:6]}', file=sys.stderr)
-                data = self.process_event(data)
+        timeout = 1000
+        while self._running:
+            res = self._poll.poll(timeout)
+            #print(res)
+
+            if res:
+                flags = res[0][1]
+                #print(flags)
+
+                if (flags & select.POLLIN) == select.POLLIN:
+                    # data are available
+
+                    newdata = sys.stdin.buffer.read(block_size*2)
+
+                    if newdata:
+                        #if len(data) > 0:
+                        #    print(f'>>{len(data)} buffer was not empty', file=sys.stderr)
+                        data += newdata
+
+                    if data:
+                        #print(f'>>{data[:6]}', file=sys.stderr)
+                        data = self.process_event(data)
 
         print('QUIT')
 
 
 
 class Client(object):
-    def __init__(self, verbose=False):
+    def __init__(self, host=None, verbose=False):
         self._verbose = verbose
         self._protocol = protocol
 
@@ -164,7 +178,10 @@ class Client(object):
 
         self._logger = logging.getLogger(self.__class__.__name__)
 
-        cmd = f'{remote_exec} -b'
+        if host:
+            cmd = f'ssh {host} {remote_exec}'
+        else:
+            cmd = f'{remote_exec}'
         self._pipe = subprocess.Popen(cmd, shell=True,# bufsize=1,
                              stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE)
@@ -227,7 +244,7 @@ class Client(object):
                     if data:
                         self._logger.debug(f'{len(data)} bytes recieved')
                         self._recv_bytes += len(data)
-                #print('R', data)
+                        #print('R', data)
                         have_no_data = False
             else:
                 print('Timeout!')
