@@ -3,11 +3,11 @@
 odsync/command.py
 
 written by: Oliver Cordes 2020-11-15
-changed by: Oliver Cordes 2020-11-21
+changed by: Oliver Cordes 2020-11-23
 
 """
 
-import sys, os, fcntl
+import sys, os, fcntl, select
 import subprocess
 import time
 import logging
@@ -22,10 +22,10 @@ except:
 
 
 remote_exec = '/Users/ocordes/git/odsync/odsync.sh'
-remote_exec = 'odsync.sh'
+#remote_exec = 'odsync.sh'
 remote_exec = 'ssh localhost /Users/ocordes/git/odsync/odsync.sh'
 
-block_size = 65536
+block_size = 66536
 #block_size = 8192
 
 protocol = '0.0.1'
@@ -111,6 +111,7 @@ class Daemon(object):
             # which means that data is still to be read,
             # then postpone the handling!
             if cmd_len > len(data):
+                print(f'>>{len(data)} buffer was not complete', file=sys.stderr)
                 return data
 
             # handle events
@@ -120,6 +121,8 @@ class Daemon(object):
             elif cmd == b'VV':
                 # Version request
                 prot = f'ODS-{protocol}'.encode('ascii')
+                #print(f' send: {prot}', file=sys.stderr)
+                time.sleep(1)
                 self.send_data(b'SS', data=prot)
             elif cmd == b'BW':
                 self.send_data(b'SS', data=b'OK')
@@ -139,6 +142,8 @@ class Daemon(object):
             #newdata = os.read(0, block_size*2)
             #data = sys.stdin.read()
             if newdata:
+                #if len(data) > 0:
+                #    print(f'>>{len(data)} buffer was not empty', file=sys.stderr)
                 data += newdata
 
             if data:
@@ -164,6 +169,9 @@ class Client(object):
                              stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE)
 
+
+        self._poll = select.poll()
+        self._poll.register(self._pipe.stdout, select.POLLIN | select.POLLHUP )
 
         setNonBlocking(self._pipe.stdout)
         #setNonBlocking(self._pipe.stderr.fileno())
@@ -198,20 +206,32 @@ class Client(object):
         have_no_data = True
         wait_time = 0.0
         data = None
+        if timeout is None:
+            timeout = 1
+
+        # timeout must be given in milliseconds
+        timeout *= 1000
         while have_no_data:
-            data = self._pipe.stdout.read()
-            if data:
-                self._logger.debug(f'{len(data)} bytes recieved')
-                self._recv_bytes += len(data)
+            res = self._poll.poll(timeout)
+            #print(res)
+
+            if res:
+                flags = res[0][1]
+                #print(flags)
+
+                if (flags & select.POLLIN) == select.POLLIN:
+                    # data are available
+
+                    data = self._pipe.stdout.read(block_size*2)
+                    #data = self._pipe.stdout.read()
+                    if data:
+                        self._logger.debug(f'{len(data)} bytes recieved')
+                        self._recv_bytes += len(data)
                 #print('R', data)
-                have_no_data = False
+                        have_no_data = False
             else:
-                time.sleep(0.01)
-                wait_time += 0.01
-                if timeout is not None:
-                    if wait_time > timeout:
-                        print('Timeout!')
-                        return None
+                print('Timeout!')
+                return None
         return data
 
 
@@ -222,7 +242,7 @@ class Client(object):
     def check_protocol(self):
         self.send_command(b'VV')
 
-        data = self.read_output()
+        data = self.read_output(timeout=30)
         cmd, blen, bdata, cmd_len = split_command(data)
         print(f' cmd:     {cmd}')
         print(f' len:     {blen}')
