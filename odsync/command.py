@@ -66,6 +66,24 @@ def bytes2human(size):
     return f'{size:.2f} GBytes'
 
 
+#
+# sends a data block to the client, the format is:
+# command (2chars) blocklen (ascii number) \0 [data]
+def send_data(stream, cmd, data=None):
+    stream.write(cmd)
+    if data:
+        block_len = len(data)
+    else:
+        block_len = 0
+    block_len = str(block_len).encode('ascii')
+
+    stream.write(block_len)
+    stream.write(b'\0')
+    if data:
+        stream.write(data)
+    stream.flush()
+
+
 
 class Daemon(object):
     def __init__(self, verbose=False):
@@ -73,8 +91,7 @@ class Daemon(object):
         self._running = True
 
         # set sys.stdin non-blocking
-        orig_fl = fcntl.fcntl(sys.stdin, fcntl.F_GETFL)
-        fcntl.fcntl(sys.stdin, fcntl.F_SETFL, orig_fl | os.O_NONBLOCK)
+        setNonBlocking(sys.stdin)
 
         self._poll = select.poll()
         self._poll.register(sys.stdin, select.POLLIN | select.POLLHUP )
@@ -89,18 +106,7 @@ class Daemon(object):
     # sends a data block to the client, the format is:
     # command (2chars) blocklen (ascii number) \0 [data]
     def send_data(self, cmd, data=None):
-        sys.stdout.buffer.write(cmd)
-        if data:
-            block_len = len(data)
-        else:
-            block_len = 0
-        block_len = str(block_len).encode('ascii')
-
-        sys.stdout.buffer.write(block_len)
-        sys.stdout.buffer.write(b'\0')
-        if data:
-            sys.stdout.buffer.write(data)
-        sys.stdout.flush()
+        send_data(sys.stdout.buffer, cmd, data=data)
 
 
     def process_event(self, data):
@@ -199,21 +205,7 @@ class Client(object):
     # sends a command to the daemon, the format is:
     # command (2chars) blocklen (ascii number) \0 [data]
     def send_command(self, cmd, data=None):
-        self._pipe.stdin.write(cmd)
-        if data:
-            block_len = len(data)
-            size = block_len
-        else:
-            block_len = 0
-            size = 0
-        block_len = str(block_len).encode('ascii')
-        self._pipe.stdin.write(block_len)
-        self._pipe.stdin.write(b'\0')
-        if data:
-            self._pipe.stdin.write(data)
-        self._pipe.stdin.flush()
-
-        self._send_bytes += 3+len(block_len)+size
+        send_data(self._pipe.stdin, cmd, data=data)
 
 
     # read_output
